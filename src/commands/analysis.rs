@@ -53,10 +53,12 @@ impl AnalysisCommands {
         
         debug!("Analyzing symbol: {}", params.name);
         
-        // Stub implementation for testing
+        // TODO: Implement comprehensive symbol analysis
+        // This would search for the symbol across the project and provide detailed info
         Ok(json!({
             "symbol": params.name,
-            "results": []
+            "status": "analysis_pending",
+            "message": "Symbol analysis requires workspace-wide search implementation"
         }))
     }
     
@@ -79,13 +81,20 @@ impl AnalysisCommands {
     }
     
     async fn get_diagnostics(&self, params: Option<Value>, _analyzer: &RustAnalyzer) -> Result<Value> {
-        let _params: FileParams = params
+        let params: FileParams = params
             .map(|p| serde_json::from_value(p))
             .transpose()?
             .unwrap_or(FileParams { file: None });
         
-        // Stub implementation for testing
-        Ok(json!({ "diagnostics": [] }))
+        debug!("Getting diagnostics for file: {:?}", params.file);
+        
+        // TODO: Implement via LSP textDocument/publishDiagnostics
+        Ok(json!({ 
+            "file": params.file,
+            "diagnostics": [],
+            "status": "diagnostics_pending",
+            "message": "Diagnostics integration requires LSP notification handling"
+        }))
     }
     
     async fn get_hover(&self, params: Option<Value>, analyzer: &RustAnalyzer) -> Result<Value> {
@@ -104,14 +113,23 @@ impl AnalysisCommands {
         }))
     }
     
-    async fn find_implementations(&self, params: Option<Value>, analyzer: &RustAnalyzer) -> Result<Value> {
+    async fn find_implementations(&self, params: Option<Value>, _analyzer: &RustAnalyzer) -> Result<Value> {
         let params: PositionParams = serde_json::from_value(
             params.ok_or_else(|| anyhow::anyhow!("Missing parameters"))?
         )?;
         
-        let _position = analyzer.get_file_position(&params.file, params.line, params.column)?;
+        debug!("Finding implementations at {}:{}:{}", params.file, params.line, params.column);
         
-        // Stub implementation for testing
-        Ok(json!({ "implementations": [] }))
+        // TODO: Implement via LSP textDocument/implementation
+        Ok(json!({
+            "file": params.file,
+            "position": {
+                "line": params.line,
+                "column": params.column
+            },
+            "implementations": [],
+            "status": "implementations_pending",
+            "message": "Implementation search requires LSP textDocument/implementation support"
+        }))
     }
 }

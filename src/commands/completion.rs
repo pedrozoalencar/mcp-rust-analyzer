@@ -76,10 +76,16 @@ impl CompletionCommands {
             params.ok_or_else(|| anyhow::anyhow!("Missing parameters"))?
         )?;
         
-        let _position = analyzer.get_file_position(&params.file, params.line, params.column)?;
+        debug!("Getting signature help at {}:{}:{}", params.file, params.line, params.column);
         
-        // Stub implementation for testing
+        // TODO: Implement via LSP textDocument/signatureHelp
+        // For now, return empty result
         Ok(json!({
+            "file": params.file,
+            "position": {
+                "line": params.line,
+                "column": params.column
+            },
             "signatures": [],
             "activeSignature": null,
             "activeParameter": null
