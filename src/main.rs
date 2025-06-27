@@ -21,8 +21,11 @@ struct Args {
 async fn main() -> Result<()> {
     let args = Args::parse();
     
+    let filter = tracing_subscriber::EnvFilter::try_from_default_env()
+        .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new(&args.log_level));
+    
     tracing_subscriber::fmt()
-        .with_env_filter(&args.log_level)
+        .with_env_filter(filter)
         .init();
     
     info!("Starting MCP Rust Analyzer server");

@@ -3,6 +3,7 @@ pub mod analyzer;
 pub mod commands;
 pub mod refactor;
 pub mod metrics;
+pub mod lsp_client;
 
 #[cfg(test)]
 mod tests {
