@@ -340,43 +340,145 @@ impl MetricsCommands {
         })
     }
     
-    async fn find_dead_code(&self, _analyzer: &RustAnalyzer) -> Result<Value> {
+    async fn find_dead_code(&self, analyzer: &RustAnalyzer) -> Result<Value> {
         debug!("Finding dead code");
         
-        // TODO: This would ideally use rust-analyzer's diagnostics
-        // For now, return a placeholder
-        Ok(json!({
-            "status": "analysis_pending",
-            "message": "Dead code analysis requires full LSP diagnostics integration",
-            "hint": "Run 'cargo check' with appropriate lints enabled"
-        }))
+        use tokio::process::Command;
+        
+        // Run cargo check with dead code detection
+        let output = Command::new("cargo")
+            .args(&["check", "--all-targets", "--message-format=json"])
+            .current_dir(analyzer.project_root())
+            .env("RUSTFLAGS", "-W dead_code")
+            .output()
+            .await;
+            
+        match output {
+            Ok(result) => {
+                let stdout = String::from_utf8_lossy(&result.stdout);
+                let stderr = String::from_utf8_lossy(&result.stderr);
+                
+                let mut dead_code_warnings = Vec::new();
+                
+                // Parse cargo output for dead code warnings
+                for line in stdout.lines() {
+                    if let Ok(json_msg) = serde_json::from_str::<Value>(line) {
+                        if json_msg.get("reason") == Some(&json!("compiler-message")) {
+                            if let Some(message) = json_msg.get("message") {
+                                if let Some(code) = message.get("code") {
+                                    if code.get("code") == Some(&json!("dead_code")) {
+                                        dead_code_warnings.push(json!({
+                                            "level": message.get("level").unwrap_or(&json!("warning")),
+                                            "message": message.get("message").unwrap_or(&json!("")),
+                                            "spans": message.get("spans").unwrap_or(&json!([]))
+                                        }));
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+                
+                Ok(json!({
+                    "dead_code_warnings": dead_code_warnings,
+                    "total_warnings": dead_code_warnings.len(),
+                    "success": result.status.success(),
+                    "stderr": if !stderr.is_empty() { Some(stderr) } else { None }
+                }))
+            }
+            Err(e) => Ok(json!({
+                "error": format!("Failed to run cargo check: {}", e),
+                "hint": "Ensure cargo is installed and project has valid Cargo.toml"
+            }))
+        }
     }
     
-    async fn suggest_improvements(&self, params: Option<Value>, _analyzer: &RustAnalyzer) -> Result<Value> {
+    async fn suggest_improvements(&self, params: Option<Value>, analyzer: &RustAnalyzer) -> Result<Value> {
         let params: FileParams = serde_json::from_value(
             params.ok_or_else(|| anyhow::anyhow!("Missing parameters"))?
         )?;
         
         debug!("Suggesting improvements for {}", params.file);
         
-        // TODO: This would ideally use rust-analyzer's code actions and diagnostics
-        // For now, return general suggestions
+        use tokio::process::Command;
+        
+        let mut suggestions = Vec::new();
+        
+        // Run clippy for specific file
+        let clippy_output = Command::new("cargo")
+            .args(&["clippy", "--message-format=json", "--", "-A", "clippy::all"])
+            .current_dir(analyzer.project_root())
+            .output()
+            .await;
+            
+        match clippy_output {
+            Ok(result) => {
+                let stdout = String::from_utf8_lossy(&result.stdout);
+                
+                // Parse clippy output for suggestions
+                for line in stdout.lines() {
+                    if let Ok(json_msg) = serde_json::from_str::<Value>(line) {
+                        if json_msg.get("reason") == Some(&json!("compiler-message")) {
+                            if let Some(message) = json_msg.get("message") {
+                                if let Some(spans) = message.get("spans").and_then(|s| s.as_array()) {
+                                    for span in spans {
+                                        if let Some(file_name) = span.get("file_name").and_then(|f| f.as_str()) {
+                                            if file_name.contains(&params.file) || params.file.contains(file_name) {
+                                                suggestions.push(json!({
+                                                    "type": "clippy",
+                                                    "level": message.get("level").unwrap_or(&json!("suggestion")),
+                                                    "message": message.get("message").unwrap_or(&json!("")),
+                                                    "code": message.get("code"),
+                                                    "line": span.get("line_start"),
+                                                    "column": span.get("column_start"),
+                                                    "suggestion": span.get("suggested_replacement")
+                                                }));
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            Err(_) => {
+                // If clippy fails, provide general suggestions
+                suggestions.push(json!({
+                    "type": "general",
+                    "message": "Install clippy with 'rustup component add clippy' for detailed suggestions"
+                }));
+            }
+        }
+        
+        // Add general improvement suggestions
+        suggestions.extend([
+            json!({
+                "type": "formatting",
+                "message": "Run 'cargo fmt' to ensure consistent formatting",
+                "command": "cargo fmt"
+            }),
+            json!({
+                "type": "documentation",
+                "message": "Consider adding documentation comments for public items",
+                "example": "/// Description of the function\npub fn example() {}"
+            }),
+            json!({
+                "type": "testing",
+                "message": "Add unit tests for critical functions",
+                "example": "#[cfg(test)]\nmod tests {\n    #[test]\n    fn test_function() {}\n}"
+            })
+        ]);
+        
         Ok(json!({
             "file": params.file,
-            "suggestions": [
-                {
-                    "type": "general",
-                    "message": "Consider running 'cargo clippy' for detailed linting suggestions"
-                },
-                {
-                    "type": "general", 
-                    "message": "Use 'cargo fmt' to ensure consistent code formatting"
-                },
-                {
-                    "type": "general",
-                    "message": "Check for unused dependencies with 'cargo-udeps'"
-                }
-            ]
+            "suggestions": suggestions,
+            "total_suggestions": suggestions.len(),
+            "categories": {
+                "clippy": suggestions.iter().filter(|s| s.get("type") == Some(&json!("clippy"))).count(),
+                "general": suggestions.iter().filter(|s| s.get("type") == Some(&json!("general"))).count(),
+                "formatting": suggestions.iter().filter(|s| s.get("type") == Some(&json!("formatting"))).count()
+            }
         }))
     }
 }
