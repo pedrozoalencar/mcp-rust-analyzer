@@ -2,6 +2,7 @@ use anyhow::Result;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use tracing::debug;
+use std::path::Path;
 
 use crate::analyzer::RustAnalyzer;
 use crate::server::CommandHandler;
@@ -46,19 +47,30 @@ impl CommandHandler for AnalysisCommands {
 }
 
 impl AnalysisCommands {
-    async fn analyze_symbol(&self, params: Option<Value>, _analyzer: &RustAnalyzer) -> Result<Value> {
+    async fn analyze_symbol(&self, params: Option<Value>, analyzer: &RustAnalyzer) -> Result<Value> {
         let params: SymbolParams = serde_json::from_value(
             params.ok_or_else(|| anyhow::anyhow!("Missing parameters"))?
         )?;
         
         debug!("Analyzing symbol: {}", params.name);
         
-        // TODO: Implement comprehensive symbol analysis
-        // This would search for the symbol across the project and provide detailed info
+        // For now, we'll provide a basic analysis based on project structure
+        // In the future, this could be enhanced with LSP workspace symbol search
+        let project_root = analyzer.project_root();
+        let symbol_info = self.search_symbol_in_project(&params.name, project_root).await?;
+        
         Ok(json!({
             "symbol": params.name,
-            "status": "analysis_pending",
-            "message": "Symbol analysis requires workspace-wide search implementation"
+            "occurrences": symbol_info.len(),
+            "locations": symbol_info,
+            "analysis": {
+                "type": if params.name.chars().next().unwrap_or('a').is_uppercase() {
+                    "Type/Struct/Enum"
+                } else {
+                    "function/variable"
+                },
+                "status": "basic_analysis_complete"
+            }
         }))
     }
     
@@ -131,5 +143,54 @@ impl AnalysisCommands {
             },
             "implementations": implementations
         }))
+    }
+    
+    async fn search_symbol_in_project(&self, symbol: &str, project_root: &std::path::Path) -> Result<Vec<Value>> {
+        let mut locations = Vec::new();
+        
+        // Search in src directory
+        let src_path = project_root.join("src");
+        if src_path.is_dir() {
+            self.search_symbol_in_directory(symbol, &src_path, &mut locations).await?;
+        }
+        
+        Ok(locations)
+    }
+    
+    async fn search_symbol_in_directory(&self, symbol: &str, dir: &Path, locations: &mut Vec<Value>) -> Result<()> {
+        use std::fs;
+        
+        let entries = fs::read_dir(dir)?;
+        
+        for entry in entries {
+            let entry = entry?;
+            let path = entry.path();
+            
+            if path.is_dir() {
+                // Recursively search subdirectories
+                Box::pin(self.search_symbol_in_directory(symbol, &path, locations)).await?;
+            } else if path.extension().map_or(false, |ext| ext == "rs") {
+                // Search in Rust files
+                if let Ok(content) = fs::read_to_string(&path) {
+                    for (line_num, line) in content.lines().enumerate() {
+                        if line.contains(symbol) {
+                            locations.push(json!({
+                                "file": path.strip_prefix(path.parent().unwrap().parent().unwrap()).unwrap_or(&path).display().to_string(),
+                                "line": line_num + 1,
+                                "content": line.trim(),
+                                "context": "code"
+                            }));
+                            
+                            // Limit results to avoid too much data
+                            if locations.len() >= 50 {
+                                return Ok(());
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        
+        Ok(())
     }
 }

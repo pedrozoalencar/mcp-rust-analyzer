@@ -79,20 +79,40 @@ impl RustAnalyzer {
                 root_path: project_root.clone(),
             };
             
-            match LspClient::new(config) {
-                Ok(mut client) => {
-                    // Try to initialize
-                    match client.initialize().await {
-                        Ok(_) => Some(client),
-                        Err(e) => {
-                            info!("Failed to initialize LSP client: {}", e);
-                            None
+            // Retry logic for LSP initialization
+            let mut retry_count = 0;
+            let max_retries = 3;
+            
+            loop {
+                match LspClient::new(config.clone()) {
+                    Ok(mut client) => {
+                        info!("Created LSP client, attempting initialization (attempt {}/{})", retry_count + 1, max_retries);
+                        match client.initialize().await {
+                            Ok(_) => {
+                                info!("LSP client initialized successfully");
+                                break Some(client);
+                            }
+                            Err(e) => {
+                                info!("Failed to initialize LSP client (attempt {}): {}", retry_count + 1, e);
+                                retry_count += 1;
+                                if retry_count >= max_retries {
+                                    info!("Max retries reached, falling back to stub implementation");
+                                    break None;
+                                }
+                                // Wait before retry
+                                tokio::time::sleep(std::time::Duration::from_millis(1000)).await;
+                            }
                         }
                     }
-                }
-                Err(e) => {
-                    info!("Failed to create LSP client: {}", e);
-                    None
+                    Err(e) => {
+                        info!("Failed to create LSP client (attempt {}): {}", retry_count + 1, e);
+                        retry_count += 1;
+                        if retry_count >= max_retries {
+                            info!("Max retries reached, falling back to stub implementation");
+                            break None;
+                        }
+                        tokio::time::sleep(std::time::Duration::from_millis(1000)).await;
+                    }
                 }
             }
         } else {
@@ -191,12 +211,38 @@ impl RustAnalyzer {
             
             match client.completion(params).await {
                 Ok(result) => {
-                    if let Some(items) = result.get("items").and_then(|v| v.as_array()) {
-                        return Ok(items.clone());
+                    // Handle different completion response formats
+                    let items = if let Some(items) = result.get("items").and_then(|v| v.as_array()) {
+                        items.clone()
                     } else if result.is_array() {
-                        return Ok(result.as_array().unwrap().clone());
-                    }
-                    Ok(Vec::new())
+                        result.as_array().unwrap().clone()
+                    } else {
+                        Vec::new()
+                    };
+                    
+                    // Transform completion items to a more usable format
+                    let transformed_items: Vec<Value> = items.iter().map(|item| {
+                        let mut transformed = json!({
+                            "label": item.get("label").and_then(|v| v.as_str()).unwrap_or(""),
+                            "kind": item.get("kind").and_then(|v| v.as_u64()).unwrap_or(1),
+                            "detail": item.get("detail").and_then(|v| v.as_str()).unwrap_or(""),
+                            "documentation": item.get("documentation").unwrap_or(&json!(null))
+                        });
+                        
+                        // Add insertText if available
+                        if let Some(insert_text) = item.get("insertText") {
+                            transformed["insertText"] = insert_text.clone();
+                        }
+                        
+                        // Add sortText if available for proper ordering
+                        if let Some(sort_text) = item.get("sortText") {
+                            transformed["sortText"] = sort_text.clone();
+                        }
+                        
+                        transformed
+                    }).collect();
+                    
+                    Ok(transformed_items)
                 }
                 Err(e) => {
                     info!("LSP completion failed: {}", e);
