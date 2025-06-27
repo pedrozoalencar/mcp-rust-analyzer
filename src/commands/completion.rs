@@ -58,7 +58,7 @@ impl CompletionCommands {
         
         debug!("Getting completions at {}:{}:{}", params.file, params.line, params.column);
         
-        let position = analyzer.get_file_position(&params.file, params.line, params.column)?;
+        let _position = analyzer.get_file_position(&params.file, params.line, params.column)?;
         
         // Stub implementation for testing
         Ok(json!({
@@ -71,7 +71,7 @@ impl CompletionCommands {
             params.ok_or_else(|| anyhow::anyhow!("Missing parameters"))?
         )?;
         
-        let position = analyzer.get_file_position(&params.file, params.line, params.column)?;
+        let _position = analyzer.get_file_position(&params.file, params.line, params.column)?;
         
         // Stub implementation for testing
         Ok(json!({
@@ -81,7 +81,7 @@ impl CompletionCommands {
         }))
     }
     
-    async fn get_completions(&self, params: Option<Value>, analyzer: &RustAnalyzer) -> Result<Value> {
+    async fn get_completions(&self, params: Option<Value>, _analyzer: &RustAnalyzer) -> Result<Value> {
         let params: ContextParams = serde_json::from_value(
             params.ok_or_else(|| anyhow::anyhow!("Missing parameters"))?
         )?;
@@ -105,7 +105,7 @@ impl CompletionCommands {
         }))
     }
     
-    async fn resolve_import(&self, params: Option<Value>, analyzer: &RustAnalyzer) -> Result<Value> {
+    async fn resolve_import(&self, params: Option<Value>, _analyzer: &RustAnalyzer) -> Result<Value> {
         let params: ImportParams = serde_json::from_value(
             params.ok_or_else(|| anyhow::anyhow!("Missing parameters"))?
         )?;

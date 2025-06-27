@@ -1,6 +1,27 @@
 use anyhow::Result;
-use ra_ap_ide::{FileId, FileRange, SourceChange, TextEdit};
-use std::collections::HashMap;
+
+use crate::analyzer::{FileId, FileRange, TextRange};
+
+#[derive(Debug, Clone)]
+pub struct SourceChange {
+    pub label: String,
+    pub edits: Vec<TextEdit>,
+}
+
+impl Default for SourceChange {
+    fn default() -> Self {
+        Self {
+            label: String::new(),
+            edits: Vec::new(),
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct TextEdit {
+    pub range: TextRange,
+    pub new_text: String,
+}
 
 pub struct RefactorEngine;
 

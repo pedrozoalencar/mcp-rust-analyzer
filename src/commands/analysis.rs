@@ -46,7 +46,7 @@ impl CommandHandler for AnalysisCommands {
 }
 
 impl AnalysisCommands {
-    async fn analyze_symbol(&self, params: Option<Value>, analyzer: &RustAnalyzer) -> Result<Value> {
+    async fn analyze_symbol(&self, params: Option<Value>, _analyzer: &RustAnalyzer) -> Result<Value> {
         let params: SymbolParams = serde_json::from_value(
             params.ok_or_else(|| anyhow::anyhow!("Missing parameters"))?
         )?;
@@ -65,7 +65,7 @@ impl AnalysisCommands {
             params.ok_or_else(|| anyhow::anyhow!("Missing parameters"))?
         )?;
         
-        let position = analyzer.get_file_position(&params.file, params.line, params.column)?;
+        let _position = analyzer.get_file_position(&params.file, params.line, params.column)?;
         
         // Stub implementation for testing
         Ok(json!({
@@ -74,8 +74,8 @@ impl AnalysisCommands {
         }))
     }
     
-    async fn get_diagnostics(&self, params: Option<Value>, analyzer: &RustAnalyzer) -> Result<Value> {
-        let params: FileParams = params
+    async fn get_diagnostics(&self, params: Option<Value>, _analyzer: &RustAnalyzer) -> Result<Value> {
+        let _params: FileParams = params
             .map(|p| serde_json::from_value(p))
             .transpose()?
             .unwrap_or(FileParams { file: None });
@@ -89,7 +89,7 @@ impl AnalysisCommands {
             params.ok_or_else(|| anyhow::anyhow!("Missing parameters"))?
         )?;
         
-        let position = analyzer.get_file_position(&params.file, params.line, params.column)?;
+        let _position = analyzer.get_file_position(&params.file, params.line, params.column)?;
         
         // Stub implementation for testing
         Ok(json!({ "contents": null }))
@@ -100,7 +100,7 @@ impl AnalysisCommands {
             params.ok_or_else(|| anyhow::anyhow!("Missing parameters"))?
         )?;
         
-        let position = analyzer.get_file_position(&params.file, params.line, params.column)?;
+        let _position = analyzer.get_file_position(&params.file, params.line, params.column)?;
         
         // Stub implementation for testing
         Ok(json!({ "implementations": [] }))

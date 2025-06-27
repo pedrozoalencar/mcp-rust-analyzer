@@ -3,14 +3,9 @@ use clap::Parser;
 use std::io::{self, BufRead, BufReader, Write};
 use tracing::{info, error};
 use tracing_subscriber;
+use serde_json::json;
 
-mod server;
-mod analyzer;
-mod commands;
-mod refactor;
-mod metrics;
-
-use server::McpServer;
+use mcp_rust_analyzer::server::McpServer;
 
 #[derive(Parser, Debug)]
 #[command(author, version, about, long_about = None)]
@@ -49,10 +44,14 @@ async fn main() -> Result<()> {
             }
             Err(e) => {
                 error!("Error handling request: {}", e);
-                let error_response = jsonrpc_lite::Response::error(
-                    jsonrpc_lite::Id::Null,
-                    jsonrpc_lite::Error::internal_error()
-                );
+                let error_response = json!({
+                    "jsonrpc": "2.0",
+                    "id": null,
+                    "error": {
+                        "code": -32603,
+                        "message": "Internal error"
+                    }
+                });
                 writeln!(stdout, "{}", serde_json::to_string(&error_response)?)?;
                 stdout.flush()?;
             }

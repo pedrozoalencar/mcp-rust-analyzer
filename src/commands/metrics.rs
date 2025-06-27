@@ -1,5 +1,4 @@
 use anyhow::Result;
-use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 
 use crate::analyzer::RustAnalyzer;

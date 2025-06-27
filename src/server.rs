@@ -1,5 +1,5 @@
 use anyhow::{Result, Context};
-use jsonrpc_lite::{JsonRpc, Params, Id};
+use jsonrpc_lite::JsonRpc;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::collections::HashMap;
@@ -23,6 +23,21 @@ pub struct McpRequest {
 pub struct McpResponse {
     pub result: Option<Value>,
     pub error: Option<String>,
+}
+
+// Internal struct to deserialize Request
+#[derive(Debug, Deserialize)]
+struct RequestData {
+    id: jsonrpc_lite::Id,
+    method: String,
+    params: Option<jsonrpc_lite::Params>,
+}
+
+// Internal struct to deserialize Notification
+#[derive(Debug, Deserialize)]
+struct NotificationData {
+    method: String,
+    params: Option<jsonrpc_lite::Params>,
 }
 
 pub struct McpServer {
@@ -75,47 +90,52 @@ impl McpServer {
     pub async fn handle_request(&self, request_str: &str) -> Result<String> {
         debug!("Received request: {}", request_str);
         
-        let request: JsonRpc = serde_json::from_str(request_str)
-            .context("Failed to parse JSON-RPC request")?;
+        // First parse as generic JSON to extract method and params
+        let json_value: Value = serde_json::from_str(request_str)?;
         
-        let response = match request {
-            JsonRpc::Request(req) => {
-                let method = req.method.as_str();
-                let params = req.params.clone();
-                
-                if let Some(handler) = self.commands.get(method) {
-                    match handler.handle(params.map(|p| p.into()), &self.analyzer).await {
-                        Ok(result) => JsonRpc::success(req.id, result),
-                        Err(e) => JsonRpc::error(
-                            req.id,
-                            jsonrpc_lite::Error::new(
-                                jsonrpc_lite::ErrorCode::InternalError,
-                                &format!("Command failed: {}", e),
-                                None
-                            )
-                        ),
-                    }
-                } else {
-                    JsonRpc::error(
-                        req.id,
-                        jsonrpc_lite::Error::method_not_found()
-                    )
+        // Check if it's a request or notification
+        if let Some(id) = json_value.get("id") {
+            // It's a request
+            let method = json_value.get("method")
+                .and_then(|v| v.as_str())
+                .ok_or_else(|| anyhow::anyhow!("Missing method"))?;
+            let params = json_value.get("params").cloned();
+            
+            let response = if let Some(handler) = self.commands.get(method) {
+                match handler.handle(params, &self.analyzer).await {
+                    Ok(result) => json!({
+                        "jsonrpc": "2.0",
+                        "id": id,
+                        "result": result
+                    }),
+                    Err(e) => json!({
+                        "jsonrpc": "2.0",
+                        "id": id,
+                        "error": {
+                            "code": -32603,
+                            "message": format!("Command failed: {}", e)
+                        }
+                    })
                 }
+            } else {
+                json!({
+                    "jsonrpc": "2.0",
+                    "id": id,
+                    "error": {
+                        "code": -32601,
+                        "message": "Method not found"
+                    }
+                })
+            };
+            
+            serde_json::to_string(&response).context("Failed to serialize response")
+        } else {
+            // It's a notification
+            if let Some(method) = json_value.get("method").and_then(|v| v.as_str()) {
+                info!("Received notification: {}", method);
             }
-            JsonRpc::Notification(notif) => {
-                info!("Received notification: {}", notif.method);
-                return Ok("".to_string());
-            }
-            _ => {
-                JsonRpc::error(
-                    Id::Null,
-                    jsonrpc_lite::Error::invalid_request()
-                )
-            }
-        };
-        
-        serde_json::to_string(&response)
-            .context("Failed to serialize response")
+            Ok("".to_string())
+        }
     }
     
     pub async fn capabilities(&self) -> Value {

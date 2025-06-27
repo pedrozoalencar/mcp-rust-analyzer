@@ -1,7 +1,7 @@
-use anyhow::{Result, Context};
-use std::path::{Path, PathBuf};
+use anyhow::Result;
+use std::path::PathBuf;
 use std::sync::Arc;
-use tracing::{info, debug};
+use tracing::info;
 
 // Temporary stub types for testing
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -72,7 +72,7 @@ impl RustAnalyzer {
         })
     }
     
-    pub fn get_file_id(&self, file_path: &str) -> Result<FileId> {
+    pub fn get_file_id(&self, _file_path: &str) -> Result<FileId> {
         // Temporary stub implementation
         Ok(FileId(0))
     }
@@ -95,7 +95,7 @@ impl RustAnalyzer {
         })
     }
     
-    fn line_col_to_offset(&self, file_id: FileId, line: u32, column: u32) -> Result<TextSize> {
+    fn line_col_to_offset(&self, _file_id: FileId, _line: u32, _column: u32) -> Result<TextSize> {
         // Temporary stub implementation
         Ok(TextSize(0))
     }
