@@ -163,9 +163,7 @@ fn ${1:test_name}() {
     ${2:// test body}
 }"#
             }
-            _ => return Ok(json!({
-                "error": format!("Unknown snippet: {}", params.name)
-            }))
+            _ => return Err(anyhow::anyhow!("Unknown snippet: {}", params.name))
         };
         
         Ok(json!({
