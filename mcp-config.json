@@ -1,0 +1,52 @@
+{
+  "name": "mcp-rust-analyzer",
+  "version": "0.1.0",
+  "description": "MCP server providing rust-analyzer capabilities to Claude Code",
+  "executable": "./target/release/mcp-rust-analyzer",
+  "args": ["--project-path", "."],
+  "env": {
+    "RUST_LOG": "info",
+    "USE_LSP": "true"
+  },
+  "capabilities": {
+    "analysis": {
+      "description": "Code analysis capabilities",
+      "commands": [
+        "analyze_symbol",
+        "find_references", 
+        "get_diagnostics",
+        "get_hover",
+        "find_implementations"
+      ]
+    },
+    "completion": {
+      "description": "Code completion and IntelliSense",
+      "commands": [
+        "complete",
+        "signature_help",
+        "get_completions",
+        "resolve_import",
+        "expand_snippet"
+      ]
+    },
+    "refactoring": {
+      "description": "Code refactoring operations",
+      "commands": [
+        "rename",
+        "extract_function",
+        "inline",
+        "organize_imports"
+      ]
+    },
+    "metrics": {
+      "description": "Code metrics and insights",
+      "commands": [
+        "project_structure",
+        "analyze_dependencies",
+        "code_metrics",
+        "find_dead_code",
+        "suggest_improvements"
+      ]
+    }
+  }
+}

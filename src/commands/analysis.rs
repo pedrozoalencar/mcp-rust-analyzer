@@ -65,12 +65,16 @@ impl AnalysisCommands {
             params.ok_or_else(|| anyhow::anyhow!("Missing parameters"))?
         )?;
         
-        let _position = analyzer.get_file_position(&params.file, params.line, params.column)?;
+        // Use the new LSP-based references functionality
+        let references = analyzer.find_references(&params.file, params.line, params.column).await?;
         
-        // Stub implementation for testing
         Ok(json!({
-            "declaration": null,
-            "references": []
+            "file": params.file,
+            "position": {
+                "line": params.line,
+                "column": params.column
+            },
+            "references": references
         }))
     }
     
@@ -89,10 +93,15 @@ impl AnalysisCommands {
             params.ok_or_else(|| anyhow::anyhow!("Missing parameters"))?
         )?;
         
-        let _position = analyzer.get_file_position(&params.file, params.line, params.column)?;
+        // Use the new LSP-based hover functionality
+        let hover_text = analyzer.hover(&params.file, params.line, params.column).await?;
         
-        // Stub implementation for testing
-        Ok(json!({ "contents": null }))
+        Ok(json!({ 
+            "contents": hover_text,
+            "file": params.file,
+            "line": params.line,
+            "column": params.column
+        }))
     }
     
     async fn find_implementations(&self, params: Option<Value>, analyzer: &RustAnalyzer) -> Result<Value> {

@@ -3,11 +3,11 @@ use serde_json::Value;
 use std::path::PathBuf;
 use std::process::Stdio;
 use tokio::process::{Command, Child};
-use tokio::io::{AsyncBufReadExt, AsyncWriteExt, AsyncReadExt, BufReader, AsyncWrite, AsyncRead};
+use tokio::io::{AsyncBufReadExt, AsyncWriteExt, AsyncReadExt, BufReader, AsyncRead};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use tracing::{info, debug, error};
-use tokio::sync::{mpsc, oneshot, Mutex};
+use tokio::sync::{oneshot, Mutex};
 use std::collections::HashMap;
 
 #[derive(Debug, Clone)]
@@ -22,6 +22,7 @@ type ResponseMap = Arc<Mutex<HashMap<u64, oneshot::Sender<Result<Value>>>>>;
 pub struct LspClient {
     config: LspClientConfig,
     process: Option<Child>,
+    stdin: Option<Arc<Mutex<tokio::process::ChildStdin>>>,
     request_id: Arc<AtomicU64>,
     initialized: bool,
     response_map: ResponseMap,
@@ -33,6 +34,7 @@ impl LspClient {
         Ok(Self {
             config,
             process: None,
+            stdin: None,
             request_id: Arc::new(AtomicU64::new(1)),
             initialized: false,
             response_map: Arc::new(Mutex::new(HashMap::new())),
@@ -151,11 +153,8 @@ impl LspClient {
         });
         
         self._reader_handle = Some(reader_handle);
+        self.stdin = Some(Arc::new(Mutex::new(stdin)));
         self.process = Some(process);
-        
-        // Store stdin for sending requests
-        let stdin = Arc::new(Mutex::new(stdin));
-        self.process.as_mut().unwrap().stdin = None; // We manage stdin separately
         
         Ok(())
     }
@@ -274,9 +273,19 @@ impl LspClient {
     }
     
     async fn write_message(&mut self, message: &Value) -> Result<()> {
-        // For the stub implementation, just return OK
-        // In a real implementation, we would write to the process stdin
-        debug!("Would send message: {}", message);
+        if let Some(stdin) = &self.stdin {
+            let content = serde_json::to_string(message)?;
+            let header = format!("Content-Length: {}\r\n\r\n", content.len());
+            
+            let mut stdin_guard = stdin.lock().await;
+            stdin_guard.write_all(header.as_bytes()).await?;
+            stdin_guard.write_all(content.as_bytes()).await?;
+            stdin_guard.flush().await?;
+            
+            debug!("Sent message: {}", message);
+        } else {
+            anyhow::bail!("No stdin available");
+        }
         Ok(())
     }
 }

@@ -36,15 +36,36 @@ Um servidor MCP (Model Context Protocol) que integra o rust-analyzer para fornec
 
 ## Instalação
 
+### Pré-requisitos
+
+1. **rust-analyzer** instalado:
+   ```bash
+   rustup component add rust-analyzer
+   ```
+   
+2. **Rust** e **Cargo** instalados
+
+### Instalação Automática
+
 ```bash
 # Clone o repositório
 git clone https://github.com/seu-usuario/mcp-rust-analyzer
 cd mcp-rust-analyzer
 
+# Execute o script de instalação
+./install.sh
+```
+
+### Instalação Manual
+
+```bash
 # Compile o projeto
 cargo build --release
 
-# O binário estará em target/release/mcp-rust-analyzer
+# Copie o binário para um local no PATH
+cp target/release/mcp-rust-analyzer ~/.local/bin/
+
+# Ou use diretamente do diretório do projeto
 ```
 
 ## Configuração para Claude Code CLI

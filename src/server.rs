@@ -1,5 +1,4 @@
 use anyhow::{Result, Context};
-use jsonrpc_lite::JsonRpc;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::collections::HashMap;

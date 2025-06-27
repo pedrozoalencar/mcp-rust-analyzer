@@ -58,11 +58,16 @@ impl CompletionCommands {
         
         debug!("Getting completions at {}:{}:{}", params.file, params.line, params.column);
         
-        let _position = analyzer.get_file_position(&params.file, params.line, params.column)?;
+        // Use the new LSP-based completion functionality
+        let completions = analyzer.completions(&params.file, params.line, params.column).await?;
         
-        // Stub implementation for testing
         Ok(json!({
-            "completions": []
+            "file": params.file,
+            "position": {
+                "line": params.line,
+                "column": params.column
+            },
+            "completions": completions
         }))
     }
     
