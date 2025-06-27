@@ -8,7 +8,9 @@ use crate::server::CommandHandler;
 
 #[derive(Debug, Serialize, Deserialize)]
 struct RenameParams {
-    old_name: String,
+    file: String,
+    line: u32,
+    column: u32,
     new_name: String,
 }
 
@@ -61,13 +63,17 @@ impl RefactorCommands {
             params.ok_or_else(|| anyhow::anyhow!("Missing parameters"))?
         )?;
         
-        debug!("Renaming {} to {}", params.old_name, params.new_name);
+        debug!("Renaming at {}:{}:{} to {}", params.file, params.line, params.column, params.new_name);
         
-        // Use the analyzer's rename functionality if available
-        let changes = analyzer.rename_symbol(&params.old_name, &params.new_name).await?;
+        // Use the LSP-based rename functionality
+        let changes = analyzer.rename(&params.file, params.line, params.column, &params.new_name).await?;
         
         Ok(json!({
-            "old_name": params.old_name,
+            "file": params.file,
+            "position": {
+                "line": params.line,
+                "column": params.column
+            },
             "new_name": params.new_name,
             "changes": changes
         }))

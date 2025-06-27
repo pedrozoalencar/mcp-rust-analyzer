@@ -67,7 +67,14 @@ impl LspClient {
                     "references": {},
                     "rename": {
                         "prepareSupport": true
-                    }
+                    },
+                    "signatureHelp": {
+                        "signatureInformation": {
+                            "documentationFormat": ["markdown", "plaintext"]
+                        }
+                    },
+                    "implementation": {},
+                    "codeAction": {}
                 }
             }
         });
@@ -126,6 +133,22 @@ impl LspClient {
     
     pub async fn rename(&mut self, params: Value) -> Result<Value> {
         self.send_request("textDocument/rename", params).await
+    }
+    
+    pub async fn signature_help(&mut self, params: Value) -> Result<Value> {
+        self.send_request("textDocument/signatureHelp", params).await
+    }
+    
+    pub async fn find_implementations(&mut self, params: Value) -> Result<Value> {
+        self.send_request("textDocument/implementation", params).await
+    }
+    
+    pub async fn document_diagnostics(&mut self, params: Value) -> Result<Value> {
+        self.send_request("textDocument/publishDiagnostics", params).await
+    }
+    
+    pub async fn code_action(&mut self, params: Value) -> Result<Value> {
+        self.send_request("textDocument/codeAction", params).await
     }
     
     async fn start_server(&mut self) -> Result<()> {

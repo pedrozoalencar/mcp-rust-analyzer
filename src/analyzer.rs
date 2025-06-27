@@ -66,8 +66,10 @@ impl RustAnalyzer {
             anyhow::bail!("No Cargo.toml found in project root");
         }
         
-        // Check if we should use LSP client
-        let use_lsp = std::env::var("USE_LSP").unwrap_or_default() == "true";
+        // Check if we should use LSP client (default: true)
+        let use_lsp = std::env::var("USE_LSP")
+            .map(|v| v == "true")
+            .unwrap_or(true);  // Default to true
         
         let lsp_client = if use_lsp {
             info!("Using LSP backend");
@@ -127,11 +129,39 @@ impl RustAnalyzer {
             
             match client.hover(params).await {
                 Ok(result) => {
+                    // Handle different hover formats from rust-analyzer
                     if let Some(contents) = result.get("contents") {
+                        // MarkedString format
                         if let Some(value) = contents.get("value").and_then(|v| v.as_str()) {
                             return Ok(Some(value.to_string()));
-                        } else if let Some(value) = contents.as_str() {
+                        }
+                        // MarkupContent format
+                        else if let Some(markup) = contents.as_object() {
+                            if let Some(value) = markup.get("value").and_then(|v| v.as_str()) {
+                                return Ok(Some(value.to_string()));
+                            }
+                        }
+                        // Plain string format
+                        else if let Some(value) = contents.as_str() {
                             return Ok(Some(value.to_string()));
+                        }
+                        // Array of MarkedString
+                        else if let Some(arr) = contents.as_array() {
+                            let combined = arr.iter()
+                                .filter_map(|item| {
+                                    if let Some(s) = item.as_str() {
+                                        Some(s.to_string())
+                                    } else if let Some(obj) = item.as_object() {
+                                        obj.get("value").and_then(|v| v.as_str()).map(|s| s.to_string())
+                                    } else {
+                                        None
+                                    }
+                                })
+                                .collect::<Vec<_>>()
+                                .join("\n\n");
+                            if !combined.is_empty() {
+                                return Ok(Some(combined));
+                            }
                         }
                     }
                     Ok(None)
@@ -212,11 +242,11 @@ impl RustAnalyzer {
         }
     }
     
-    pub async fn rename(&self, file_path: &str, line: u32, column: u32, new_name: &str) -> Result<Value> {
+    pub async fn rename(&self, file: &str, line: u32, column: u32, new_name: &str) -> Result<Value> {
         if let Some(client) = self.lsp_client.lock().await.as_mut() {
             let params = json!({
                 "textDocument": {
-                    "uri": format!("file://{}/{}", self.project_root.display(), file_path)
+                    "uri": format!("file://{}/{}", self.project_root.display(), file)
                 },
                 "position": {
                     "line": line - 1,  // LSP uses 0-based
@@ -229,26 +259,70 @@ impl RustAnalyzer {
                 Ok(result) => Ok(result),
                 Err(e) => {
                     info!("LSP rename failed: {}", e);
+                    Ok(json!({
+                        "error": format!("Rename failed: {}", e)
+                    }))
+                }
+            }
+        } else {
+            Ok(json!({
+                "error": "LSP not available"
+            }))
+        }
+    }
+    
+    pub async fn signature_help(&self, file_path: &str, line: u32, column: u32) -> Result<Value> {
+        if let Some(client) = self.lsp_client.lock().await.as_mut() {
+            let params = json!({
+                "textDocument": {
+                    "uri": format!("file://{}/{}", self.project_root.display(), file_path)
+                },
+                "position": {
+                    "line": line - 1,  // LSP uses 0-based
+                    "character": column - 1
+                }
+            });
+            
+            match client.signature_help(params).await {
+                Ok(result) => Ok(result),
+                Err(e) => {
+                    info!("LSP signature help failed: {}", e);
                     Ok(json!({}))
                 }
             }
         } else {
-            // Fallback to stub implementation
             Ok(json!({}))
         }
     }
     
-    pub async fn rename_symbol(&self, _old_name: &str, _new_name: &str) -> Result<Value> {
-        // This is a simplified implementation. In a real scenario, we'd need to:
-        // 1. Search for the symbol across all files
-        // 2. Determine its location
-        // 3. Use that location to initiate the rename
-        
-        // For now, return a placeholder
-        Ok(json!({
-            "status": "not_implemented",
-            "message": "Symbol-based rename requires full project search implementation"
-        }))
+    pub async fn find_implementations(&self, file_path: &str, line: u32, column: u32) -> Result<Vec<Value>> {
+        if let Some(client) = self.lsp_client.lock().await.as_mut() {
+            let params = json!({
+                "textDocument": {
+                    "uri": format!("file://{}/{}", self.project_root.display(), file_path)
+                },
+                "position": {
+                    "line": line - 1,  // LSP uses 0-based
+                    "character": column - 1
+                }
+            });
+            
+            match client.find_implementations(params).await {
+                Ok(result) => {
+                    if let Some(impls) = result.as_array() {
+                        Ok(impls.clone())
+                    } else {
+                        Ok(Vec::new())
+                    }
+                }
+                Err(e) => {
+                    info!("LSP find implementations failed: {}", e);
+                    Ok(Vec::new())
+                }
+            }
+        } else {
+            Ok(Vec::new())
+        }
     }
     
     pub fn project_root(&self) -> &Path {

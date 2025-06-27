@@ -113,23 +113,23 @@ impl AnalysisCommands {
         }))
     }
     
-    async fn find_implementations(&self, params: Option<Value>, _analyzer: &RustAnalyzer) -> Result<Value> {
+    async fn find_implementations(&self, params: Option<Value>, analyzer: &RustAnalyzer) -> Result<Value> {
         let params: PositionParams = serde_json::from_value(
             params.ok_or_else(|| anyhow::anyhow!("Missing parameters"))?
         )?;
         
         debug!("Finding implementations at {}:{}:{}", params.file, params.line, params.column);
         
-        // TODO: Implement via LSP textDocument/implementation
+        // Use the new LSP-based implementations functionality
+        let implementations = analyzer.find_implementations(&params.file, params.line, params.column).await?;
+        
         Ok(json!({
             "file": params.file,
             "position": {
                 "line": params.line,
                 "column": params.column
             },
-            "implementations": [],
-            "status": "implementations_pending",
-            "message": "Implementation search requires LSP textDocument/implementation support"
+            "implementations": implementations
         }))
     }
 }

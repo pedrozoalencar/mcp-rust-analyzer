@@ -78,17 +78,16 @@ impl CompletionCommands {
         
         debug!("Getting signature help at {}:{}:{}", params.file, params.line, params.column);
         
-        // TODO: Implement via LSP textDocument/signatureHelp
-        // For now, return empty result
+        // Use the new LSP-based signature help functionality
+        let signatures = analyzer.signature_help(&params.file, params.line, params.column).await?;
+        
         Ok(json!({
             "file": params.file,
             "position": {
                 "line": params.line,
                 "column": params.column
             },
-            "signatures": [],
-            "activeSignature": null,
-            "activeParameter": null
+            "signatures": signatures
         }))
     }
     
