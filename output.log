@@ -1,6 +1,0 @@
-[2m2025-06-27T18:07:03.898984Z[0m [32m INFO[0m [2mmcp_rust_analyzer[0m[2m:[0m Starting MCP Rust Analyzer server
-[2m2025-06-27T18:07:03.898993Z[0m [32m INFO[0m [2mmcp_rust_analyzer[0m[2m:[0m Project path: .
-[2m2025-06-27T18:07:03.898995Z[0m [32m INFO[0m [2mmcp_rust_analyzer::server[0m[2m:[0m Initializing MCP server for project: .
-[2m2025-06-27T18:07:03.898997Z[0m [32m INFO[0m [2mmcp_rust_analyzer::analyzer[0m[2m:[0m Initializing Rust Analyzer for project: .
-[2m2025-06-27T18:07:03.899011Z[0m [34mDEBUG[0m [2mmcp_rust_analyzer::server[0m[2m:[0m Received request: {"jsonrpc":"2.0","id":1,"method":"project_structure","params":{"method":"project_structure"}}
-{"id":1,"jsonrpc":"2.0","result":{"status":"not implemented"}}
