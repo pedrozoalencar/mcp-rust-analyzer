@@ -4,6 +4,9 @@ pub mod commands;
 pub mod refactor;
 pub mod metrics;
 pub mod lsp_client;
+pub mod http_server;
+pub mod http_client;
+pub mod daemon_state;
 
 #[cfg(test)]
 mod tests {

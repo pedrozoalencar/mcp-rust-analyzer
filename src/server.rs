@@ -156,6 +156,11 @@ impl McpServer {
     }
     
     async fn handle_initialize(&self, id: &Value, _params: Option<Value>) -> Value {
+        info!("Handling initialize request");
+        // Start LSP initialization in background after responding
+        self.analyzer.start_lsp_initialization().await;
+        info!("LSP initialization triggered");
+        
         json!({
             "jsonrpc": "2.0",
             "id": id,

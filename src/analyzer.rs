@@ -71,53 +71,9 @@ impl RustAnalyzer {
             .map(|v| v == "true")
             .unwrap_or(true);  // Default to true
         
-        let lsp_client = if use_lsp {
-            info!("Using LSP backend");
-            let config = LspClientConfig {
-                server_path: "rust-analyzer".to_string(),
-                server_args: vec![],
-                root_path: project_root.clone(),
-            };
-            
-            // Retry logic for LSP initialization
-            let mut retry_count = 0;
-            let max_retries = 3;
-            
-            loop {
-                match LspClient::new(config.clone()) {
-                    Ok(mut client) => {
-                        info!("Created LSP client, attempting initialization (attempt {}/{})", retry_count + 1, max_retries);
-                        match client.initialize().await {
-                            Ok(_) => {
-                                info!("LSP client initialized successfully");
-                                break Some(client);
-                            }
-                            Err(e) => {
-                                info!("Failed to initialize LSP client (attempt {}): {}", retry_count + 1, e);
-                                retry_count += 1;
-                                if retry_count >= max_retries {
-                                    info!("Max retries reached, falling back to stub implementation");
-                                    break None;
-                                }
-                                // Wait before retry
-                                tokio::time::sleep(std::time::Duration::from_millis(1000)).await;
-                            }
-                        }
-                    }
-                    Err(e) => {
-                        info!("Failed to create LSP client (attempt {}): {}", retry_count + 1, e);
-                        retry_count += 1;
-                        if retry_count >= max_retries {
-                            info!("Max retries reached, falling back to stub implementation");
-                            break None;
-                        }
-                        tokio::time::sleep(std::time::Duration::from_millis(1000)).await;
-                    }
-                }
-            }
-        } else {
-            None
-        };
+        // Don't initialize LSP client during construction
+        // It will be initialized lazily on first use
+        let lsp_client = None;
         
         // Temporary stub implementation
         let host = AnalysisHost;
@@ -136,10 +92,34 @@ impl RustAnalyzer {
     }
     
     pub async fn hover(&self, file_path: &str, line: u32, column: u32) -> Result<Option<String>> {
+        // Initialize LSP client lazily if needed
+        if self.use_lsp {
+            let mut lsp_guard = self.lsp_client.lock().await;
+            if lsp_guard.is_none() {
+                *lsp_guard = self.try_initialize_lsp().await;
+            }
+        }
+        
         if let Some(client) = self.lsp_client.lock().await.as_mut() {
+            // Ensure document is open with absolute path
+            let full_path = if file_path.starts_with('/') {
+                // Already absolute path
+                std::path::PathBuf::from(file_path)
+            } else {
+                // Relative to project root
+                self.project_root.join(file_path)
+            };
+            
+            let canonical_path = full_path.canonicalize()
+                .unwrap_or_else(|_| full_path.clone());
+            
+            let file_uri = format!("file://{}", canonical_path.to_string_lossy());
+            
+            let _ = client.did_open(&canonical_path.to_string_lossy()).await;
+            
             let params = json!({
                 "textDocument": {
-                    "uri": format!("file://{}/{}", self.project_root.display(), file_path)
+                    "uri": file_uri
                 },
                 "position": {
                     "line": line - 1,  // LSP uses 0-based
@@ -198,10 +178,34 @@ impl RustAnalyzer {
     }
     
     pub async fn completions(&self, file_path: &str, line: u32, column: u32) -> Result<Vec<Value>> {
+        // Initialize LSP client lazily if needed
+        if self.use_lsp {
+            let mut lsp_guard = self.lsp_client.lock().await;
+            if lsp_guard.is_none() {
+                *lsp_guard = self.try_initialize_lsp().await;
+            }
+        }
+        
         if let Some(client) = self.lsp_client.lock().await.as_mut() {
+            // Ensure document is open with absolute path
+            let full_path = if file_path.starts_with('/') {
+                // Already absolute path
+                std::path::PathBuf::from(file_path)
+            } else {
+                // Relative to project root
+                self.project_root.join(file_path)
+            };
+            
+            let canonical_path = full_path.canonicalize()
+                .unwrap_or_else(|_| full_path.clone());
+            
+            let file_uri = format!("file://{}", canonical_path.to_string_lossy());
+            
+            let _ = client.did_open(&canonical_path.to_string_lossy()).await;
+            
             let params = json!({
                 "textDocument": {
-                    "uri": format!("file://{}/{}", self.project_root.display(), file_path)
+                    "uri": file_uri
                 },
                 "position": {
                     "line": line - 1,  // LSP uses 0-based
@@ -257,9 +261,25 @@ impl RustAnalyzer {
     
     pub async fn find_references(&self, file_path: &str, line: u32, column: u32) -> Result<Vec<Value>> {
         if let Some(client) = self.lsp_client.lock().await.as_mut() {
+            // Ensure document is open with absolute path
+            let full_path = if file_path.starts_with('/') {
+                // Already absolute path
+                std::path::PathBuf::from(file_path)
+            } else {
+                // Relative to project root
+                self.project_root.join(file_path)
+            };
+            
+            let canonical_path = full_path.canonicalize()
+                .unwrap_or_else(|_| full_path.clone());
+            
+            let file_uri = format!("file://{}", canonical_path.to_string_lossy());
+            
+            let _ = client.did_open(&canonical_path.to_string_lossy()).await;
+            
             let params = json!({
                 "textDocument": {
-                    "uri": format!("file://{}/{}", self.project_root.display(), file_path)
+                    "uri": file_uri
                 },
                 "position": {
                     "line": line - 1,  // LSP uses 0-based
@@ -290,9 +310,18 @@ impl RustAnalyzer {
     
     pub async fn rename(&self, file: &str, line: u32, column: u32, new_name: &str) -> Result<Value> {
         if let Some(client) = self.lsp_client.lock().await.as_mut() {
+            // Ensure document is open
+            let full_path = if file.starts_with(&self.project_root.to_string_lossy().to_string()) {
+                file.to_string()
+            } else {
+                self.project_root.join(file).to_string_lossy().to_string()
+            };
+            
+            let _ = client.did_open(&full_path).await;
+            
             let params = json!({
                 "textDocument": {
-                    "uri": format!("file://{}/{}", self.project_root.display(), file)
+                    "uri": format!("file://{}", full_path)
                 },
                 "position": {
                     "line": line - 1,  // LSP uses 0-based
@@ -319,9 +348,25 @@ impl RustAnalyzer {
     
     pub async fn signature_help(&self, file_path: &str, line: u32, column: u32) -> Result<Value> {
         if let Some(client) = self.lsp_client.lock().await.as_mut() {
+            // Ensure document is open with absolute path
+            let full_path = if file_path.starts_with('/') {
+                // Already absolute path
+                std::path::PathBuf::from(file_path)
+            } else {
+                // Relative to project root
+                self.project_root.join(file_path)
+            };
+            
+            let canonical_path = full_path.canonicalize()
+                .unwrap_or_else(|_| full_path.clone());
+            
+            let file_uri = format!("file://{}", canonical_path.to_string_lossy());
+            
+            let _ = client.did_open(&canonical_path.to_string_lossy()).await;
+            
             let params = json!({
                 "textDocument": {
-                    "uri": format!("file://{}/{}", self.project_root.display(), file_path)
+                    "uri": file_uri
                 },
                 "position": {
                     "line": line - 1,  // LSP uses 0-based
@@ -343,9 +388,25 @@ impl RustAnalyzer {
     
     pub async fn find_implementations(&self, file_path: &str, line: u32, column: u32) -> Result<Vec<Value>> {
         if let Some(client) = self.lsp_client.lock().await.as_mut() {
+            // Ensure document is open with absolute path
+            let full_path = if file_path.starts_with('/') {
+                // Already absolute path
+                std::path::PathBuf::from(file_path)
+            } else {
+                // Relative to project root
+                self.project_root.join(file_path)
+            };
+            
+            let canonical_path = full_path.canonicalize()
+                .unwrap_or_else(|_| full_path.clone());
+            
+            let file_uri = format!("file://{}", canonical_path.to_string_lossy());
+            
+            let _ = client.did_open(&canonical_path.to_string_lossy()).await;
+            
             let params = json!({
                 "textDocument": {
-                    "uri": format!("file://{}/{}", self.project_root.display(), file_path)
+                    "uri": file_uri
                 },
                 "position": {
                     "line": line - 1,  // LSP uses 0-based
@@ -417,6 +478,80 @@ impl RustAnalyzer {
     pub fn get_all_files(&self) -> Vec<(FileId, PathBuf)> {
         // Temporary stub implementation
         vec![(FileId(0), self.project_root.join("src/lib.rs"))]
+    }
+    
+    pub async fn get_lsp_client(&self) -> Option<tokio::sync::MutexGuard<'_, Option<LspClient>>> {
+        Some(self.lsp_client.lock().await)
+    }
+    
+    async fn try_initialize_lsp(&self) -> Option<LspClient> {
+        info!("Attempting to initialize LSP client");
+        let config = LspClientConfig {
+            server_path: "rust-analyzer".to_string(),
+            server_args: vec![],
+            root_path: self.project_root.clone(),
+        };
+        
+        match LspClient::new(config) {
+            Ok(mut client) => {
+                match client.initialize().await {
+                    Ok(_) => {
+                        info!("LSP client initialized successfully");
+                        Some(client)
+                    }
+                    Err(e) => {
+                        info!("Failed to initialize LSP client: {}", e);
+                        None
+                    }
+                }
+            }
+            Err(e) => {
+                info!("Failed to create LSP client: {}", e);
+                None
+            }
+        }
+    }
+    
+    pub async fn start_lsp_initialization(&self) {
+        if !self.use_lsp {
+            info!("LSP disabled by configuration");
+            return;
+        }
+        
+        let lsp_client = self.lsp_client.clone();
+        let project_root = self.project_root.clone();
+        
+        // Spawn background task to initialize LSP
+        tokio::spawn(async move {
+            info!("Starting background LSP initialization for project: {}", project_root.display());
+            let config = LspClientConfig {
+                server_path: "rust-analyzer".to_string(),
+                server_args: vec![],
+                root_path: project_root.clone(),
+            };
+            
+            info!("Creating LSP client...");
+            match LspClient::new(config) {
+                Ok(mut client) => {
+                    info!("LSP client created, initializing...");
+                    match client.initialize().await {
+                        Ok(response) => {
+                            info!("Background LSP initialization successful: {:?}", response);
+                            let mut guard = lsp_client.lock().await;
+                            *guard = Some(client);
+                            info!("LSP client stored and ready for use");
+                        }
+                        Err(e) => {
+                            info!("Background LSP initialization failed: {:?}", e);
+                        }
+                    }
+                }
+                Err(e) => {
+                    info!("Failed to create LSP client in background: {:?}", e);
+                }
+            }
+            info!("Background LSP initialization task completed");
+        });
     }
 }
 

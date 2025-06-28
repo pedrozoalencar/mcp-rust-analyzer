@@ -59,9 +59,15 @@ impl CommandHandler for RefactorCommands {
 
 impl RefactorCommands {
     async fn rename(&self, params: Option<Value>, analyzer: &RustAnalyzer) -> Result<Value> {
-        let params: RenameParams = serde_json::from_value(
-            params.ok_or_else(|| anyhow::anyhow!("Missing parameters"))?
-        )?;
+        let params_value = params.ok_or_else(|| anyhow::anyhow!("Missing parameters"))?;
+        
+        // Extract method field if present and remove it before parsing
+        let mut params_value = params_value;
+        if let Some(obj) = params_value.as_object_mut() {
+            obj.remove("method");
+        }
+        
+        let params: RenameParams = serde_json::from_value(params_value)?;
         
         debug!("Renaming at {}:{}:{} to {}", params.file, params.line, params.column, params.new_name);
         
@@ -79,10 +85,16 @@ impl RefactorCommands {
         }))
     }
     
-    async fn extract_function(&self, params: Option<Value>, _analyzer: &RustAnalyzer) -> Result<Value> {
-        let params: ExtractFunctionParams = serde_json::from_value(
-            params.ok_or_else(|| anyhow::anyhow!("Missing parameters"))?
-        )?;
+    async fn extract_function(&self, params: Option<Value>, analyzer: &RustAnalyzer) -> Result<Value> {
+        let params_value = params.ok_or_else(|| anyhow::anyhow!("Missing parameters"))?;
+        
+        // Extract method field if present and remove it before parsing
+        let mut params_value = params_value;
+        if let Some(obj) = params_value.as_object_mut() {
+            obj.remove("method");
+        }
+        
+        let params: ExtractFunctionParams = serde_json::from_value(params_value)?;
         
         debug!("Extracting function {} from {}:{}:{} to {}:{}", 
             params.function_name, params.file, 
@@ -90,10 +102,66 @@ impl RefactorCommands {
             params.end_line, params.end_column
         );
         
-        // TODO: Implement extract function using LSP code actions
-        // For now, return a placeholder response
+        // Try to use LSP code actions for extract function
+        if let Some(mut lsp_guard) = analyzer.get_lsp_client().await {
+            if let Some(client) = lsp_guard.as_mut() {
+            let full_path = if params.file.starts_with(&analyzer.project_root().to_string_lossy().to_string()) {
+                params.file.clone()
+            } else {
+                analyzer.project_root().join(&params.file).to_string_lossy().to_string()
+            };
+            
+            let _ = client.did_open(&full_path).await;
+            
+            let code_action_params = json!({
+                "textDocument": {
+                    "uri": format!("file://{}", full_path)
+                },
+                "range": {
+                    "start": {
+                        "line": params.start_line - 1,
+                        "character": params.start_column - 1
+                    },
+                    "end": {
+                        "line": params.end_line - 1,
+                        "character": params.end_column - 1
+                    }
+                },
+                "context": {
+                    "diagnostics": [],
+                    "only": ["refactor.extract"]
+                }
+            });
+            
+            match client.code_action(code_action_params).await {
+                Ok(actions) => {
+                    return Ok(json!({
+                        "status": "lsp_code_actions_available",
+                        "function_name": params.function_name,
+                        "file": params.file,
+                        "range": {
+                            "start": {
+                                "line": params.start_line,
+                                "column": params.start_column
+                            },
+                            "end": {
+                                "line": params.end_line,
+                                "column": params.end_column
+                            }
+                        },
+                        "available_actions": actions
+                    }));
+                }
+                Err(e) => {
+                    debug!("LSP code action failed: {}", e);
+                }
+            }
+        }
+        }
+        
+        // Fallback: Basic extract function implementation
         Ok(json!({
-            "status": "extract_function not yet implemented via LSP",
+            "status": "basic_extract_function_placeholder",
             "function_name": params.function_name,
             "file": params.file,
             "range": {
@@ -105,39 +173,148 @@ impl RefactorCommands {
                     "line": params.end_line,
                     "column": params.end_column
                 }
-            }
+            },
+            "note": "Full LSP integration would provide automatic code generation"
         }))
     }
     
-    async fn inline(&self, params: Option<Value>, _analyzer: &RustAnalyzer) -> Result<Value> {
-        let params: InlineParams = serde_json::from_value(
-            params.ok_or_else(|| anyhow::anyhow!("Missing parameters"))?
-        )?;
+    async fn inline(&self, params: Option<Value>, analyzer: &RustAnalyzer) -> Result<Value> {
+        let params_value = params.ok_or_else(|| anyhow::anyhow!("Missing parameters"))?;
+        
+        // Extract method field if present and remove it before parsing
+        let mut params_value = params_value;
+        if let Some(obj) = params_value.as_object_mut() {
+            obj.remove("method");
+        }
+        
+        let params: InlineParams = serde_json::from_value(params_value)?;
         
         debug!("Inlining at {}:{}:{}", params.file, params.line, params.column);
         
-        // TODO: Implement inline using LSP code actions
+        // Try to use LSP code actions for inline
+        if let Some(mut lsp_guard) = analyzer.get_lsp_client().await {
+            if let Some(client) = lsp_guard.as_mut() {
+            let full_path = if params.file.starts_with(&analyzer.project_root().to_string_lossy().to_string()) {
+                params.file.clone()
+            } else {
+                analyzer.project_root().join(&params.file).to_string_lossy().to_string()
+            };
+            
+            let _ = client.did_open(&full_path).await;
+            
+            let code_action_params = json!({
+                "textDocument": {
+                    "uri": format!("file://{}", full_path)
+                },
+                "range": {
+                    "start": {
+                        "line": params.line - 1,
+                        "character": params.column - 1
+                    },
+                    "end": {
+                        "line": params.line - 1,
+                        "character": params.column - 1
+                    }
+                },
+                "context": {
+                    "diagnostics": [],
+                    "only": ["refactor.inline"]
+                }
+            });
+            
+            match client.code_action(code_action_params).await {
+                Ok(actions) => {
+                    return Ok(json!({
+                        "status": "lsp_code_actions_available",
+                        "file": params.file,
+                        "position": {
+                            "line": params.line,
+                            "column": params.column
+                        },
+                        "available_actions": actions
+                    }));
+                }
+                Err(e) => {
+                    debug!("LSP code action failed: {}", e);
+                }
+            }
+        }
+        }
+        
         Ok(json!({
-            "status": "inline not yet implemented via LSP",
+            "status": "inline_placeholder",
             "file": params.file,
             "position": {
                 "line": params.line,
                 "column": params.column
-            }
+            },
+            "note": "Full LSP integration would provide automatic inlining"
         }))
     }
     
-    async fn organize_imports(&self, params: Option<Value>, _analyzer: &RustAnalyzer) -> Result<Value> {
-        let params: OrganizeImportsParams = serde_json::from_value(
-            params.ok_or_else(|| anyhow::anyhow!("Missing parameters"))?
-        )?;
+    async fn organize_imports(&self, params: Option<Value>, analyzer: &RustAnalyzer) -> Result<Value> {
+        let params_value = params.ok_or_else(|| anyhow::anyhow!("Missing parameters"))?;
+        
+        // Extract method field if present and remove it before parsing
+        let mut params_value = params_value;
+        if let Some(obj) = params_value.as_object_mut() {
+            obj.remove("method");
+        }
+        
+        let params: OrganizeImportsParams = serde_json::from_value(params_value)?;
         
         debug!("Organizing imports in {}", params.file);
         
-        // TODO: Implement organize imports using LSP code actions
+        // Try to use LSP code actions for organize imports
+        if let Some(mut lsp_guard) = analyzer.get_lsp_client().await {
+            if let Some(client) = lsp_guard.as_mut() {
+            let full_path = if params.file.starts_with(&analyzer.project_root().to_string_lossy().to_string()) {
+                params.file.clone()
+            } else {
+                analyzer.project_root().join(&params.file).to_string_lossy().to_string()
+            };
+            
+            let _ = client.did_open(&full_path).await;
+            
+            let code_action_params = json!({
+                "textDocument": {
+                    "uri": format!("file://{}", full_path)
+                },
+                "range": {
+                    "start": {
+                        "line": 0,
+                        "character": 0
+                    },
+                    "end": {
+                        "line": 0,
+                        "character": 0
+                    }
+                },
+                "context": {
+                    "diagnostics": [],
+                    "only": ["source.organizeImports"]
+                }
+            });
+            
+            match client.code_action(code_action_params).await {
+                Ok(actions) => {
+                    return Ok(json!({
+                        "status": "lsp_code_actions_available",
+                        "file": params.file,
+                        "available_actions": actions
+                    }));
+                }
+                Err(e) => {
+                    debug!("LSP code action failed: {}", e);
+                }
+            }
+        }
+        }
+        
         Ok(json!({
-            "status": "organize_imports not yet implemented via LSP",
-            "file": params.file
+            "status": "organize_imports_placeholder",
+            "file": params.file,
+            "note": "Full LSP integration would provide automatic import organization"
         }))
     }
 }

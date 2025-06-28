@@ -394,9 +394,22 @@ impl MetricsCommands {
     }
     
     async fn suggest_improvements(&self, params: Option<Value>, analyzer: &RustAnalyzer) -> Result<Value> {
-        let params: FileParams = serde_json::from_value(
-            params.ok_or_else(|| anyhow::anyhow!("Missing parameters"))?
-        )?;
+        let params_value = params.ok_or_else(|| anyhow::anyhow!("Missing parameters"))?;
+        
+        // Extract method field if present and remove it before parsing
+        let mut params_value = params_value;
+        if let Some(obj) = params_value.as_object_mut() {
+            obj.remove("method");
+        }
+        
+        // Handle case where 'module' is provided instead of 'file'
+        if let Some(obj) = params_value.as_object_mut() {
+            if let Some(module) = obj.remove("module") {
+                obj.insert("file".to_string(), module);
+            }
+        }
+        
+        let params: FileParams = serde_json::from_value(params_value)?;
         
         debug!("Suggesting improvements for {}", params.file);
         
@@ -404,9 +417,9 @@ impl MetricsCommands {
         
         let mut suggestions = Vec::new();
         
-        // Run clippy for specific file
+        // Run clippy for the project (clippy doesn't support file-specific analysis)
         let clippy_output = Command::new("cargo")
-            .args(&["clippy", "--message-format=json", "--", "-A", "clippy::all"])
+            .args(&["clippy", "--message-format=json"])
             .current_dir(analyzer.project_root())
             .output()
             .await;

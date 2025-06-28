@@ -48,28 +48,117 @@ impl CommandHandler for AnalysisCommands {
 
 impl AnalysisCommands {
     async fn analyze_symbol(&self, params: Option<Value>, analyzer: &RustAnalyzer) -> Result<Value> {
-        let params: SymbolParams = serde_json::from_value(
-            params.ok_or_else(|| anyhow::anyhow!("Missing parameters"))?
-        )?;
+        let params_value = params.ok_or_else(|| anyhow::anyhow!("Missing parameters"))?;
+        
+        // Extract method field if present and remove it before parsing
+        let mut params_value = params_value;
+        if let Some(obj) = params_value.as_object_mut() {
+            obj.remove("method");
+        }
+        
+        let params: SymbolParams = serde_json::from_value(params_value)?;
         
         debug!("Analyzing symbol: {}", params.name);
         
-        // For now, we'll provide a basic analysis based on project structure
-        // In the future, this could be enhanced with LSP workspace symbol search
+        // Use both LSP workspace symbols and local file search for comprehensive analysis
         let project_root = analyzer.project_root();
-        let symbol_info = self.search_symbol_in_project(&params.name, project_root).await?;
+        let mut symbol_info = self.search_symbol_in_project(&params.name, project_root).await?;
+        
+        // Try to get additional info via LSP workspace symbols if available
+        if let Some(mut lsp_guard) = analyzer.get_lsp_client().await {
+            if let Some(client) = lsp_guard.as_mut() {
+            if let Ok(lsp_symbols) = client.workspace_symbol(&params.name).await {
+                if let Some(symbols) = lsp_symbols.as_array() {
+                    for symbol in symbols {
+                        if let Some(location) = symbol.get("location") {
+                            if let Some(uri) = location.get("uri").and_then(|u| u.as_str()) {
+                                // Convert file URI to relative path
+                                let file_path = uri.strip_prefix("file://")
+                                    .unwrap_or(uri)
+                                    .strip_prefix(&project_root.to_string_lossy().to_string())
+                                    .unwrap_or(uri);
+                                    
+                                let range = location.get("range");
+                                let line = range.and_then(|r| r.get("start"))
+                                    .and_then(|s| s.get("line"))
+                                    .and_then(|l| l.as_u64())
+                                    .unwrap_or(0) + 1; // Convert from 0-based to 1-based
+                                
+                                symbol_info.push(json!({
+                                    "file": file_path,
+                                    "line": line,
+                                    "content": symbol.get("name").unwrap_or(&json!("")),
+                                    "context": "lsp_workspace_symbol",
+                                    "kind": symbol.get("kind").unwrap_or(&json!("unknown")),
+                                    "container": symbol.get("containerName").unwrap_or(&json!(""))
+                                }));
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        }
+        
+        // Deduplicate results
+        let mut unique_locations = Vec::new();
+        let mut seen = std::collections::HashSet::new();
+        
+        for location in symbol_info {
+            let key = format!("{}:{}", 
+                location.get("file").unwrap_or(&json!("")).as_str().unwrap_or(""),
+                location.get("line").unwrap_or(&json!(0)).as_u64().unwrap_or(0)
+            );
+            
+            if seen.insert(key) {
+                unique_locations.push(location);
+            }
+        }
+        
+        // Analyze symbol type based on patterns
+        let symbol_type = if params.name.chars().next().unwrap_or('a').is_uppercase() {
+            if params.name.contains("Error") || params.name.contains("Exception") {
+                "Error Type"
+            } else if unique_locations.iter().any(|loc| 
+                loc.get("context").and_then(|c| c.as_str()).unwrap_or("").contains("struct")
+            ) {
+                "Struct"
+            } else if unique_locations.iter().any(|loc| 
+                loc.get("context").and_then(|c| c.as_str()).unwrap_or("").contains("enum")
+            ) {
+                "Enum"
+            } else if unique_locations.iter().any(|loc| 
+                loc.get("context").and_then(|c| c.as_str()).unwrap_or("").contains("trait")
+            ) {
+                "Trait"
+            } else {
+                "Type"
+            }
+        } else if params.name.starts_with("is_") || params.name.starts_with("has_") || params.name.starts_with("can_") {
+            "Predicate Function"
+        } else if params.name.ends_with("_mut") {
+            "Mutable Function/Method"
+        } else {
+            "Function/Variable"
+        };
+        
+        let lsp_status = {
+            let lsp_client_guard = analyzer.get_lsp_client().await;
+            let has_lsp = lsp_client_guard.as_ref().map(|g| g.as_ref().is_some()).unwrap_or(false);
+            if has_lsp { "lsp_workspace_symbols" } else { "lsp_unavailable" }
+        };
         
         Ok(json!({
             "symbol": params.name,
-            "occurrences": symbol_info.len(),
-            "locations": symbol_info,
+            "occurrences": unique_locations.len(),
+            "locations": unique_locations,
             "analysis": {
-                "type": if params.name.chars().next().unwrap_or('a').is_uppercase() {
-                    "Type/Struct/Enum"
-                } else {
-                    "function/variable"
-                },
-                "status": "basic_analysis_complete"
+                "type": symbol_type,
+                "status": "enhanced_analysis_complete",
+                "search_methods": [
+                    "file_content_search",
+                    lsp_status
+                ]
             }
         }))
     }
@@ -92,20 +181,96 @@ impl AnalysisCommands {
         }))
     }
     
-    async fn get_diagnostics(&self, params: Option<Value>, _analyzer: &RustAnalyzer) -> Result<Value> {
-        let params: FileParams = params
-            .map(|p| serde_json::from_value(p))
-            .transpose()?
-            .unwrap_or(FileParams { file: None });
+    async fn get_diagnostics(&self, params: Option<Value>, analyzer: &RustAnalyzer) -> Result<Value> {
+        let mut params_value = params.unwrap_or(json!({}));
+        
+        // Extract method field if present and remove it before parsing
+        if let Some(obj) = params_value.as_object_mut() {
+            obj.remove("method");
+        }
+        
+        let params: FileParams = serde_json::from_value(params_value)?;
         
         debug!("Getting diagnostics for file: {:?}", params.file);
         
-        // TODO: Implement via LSP textDocument/publishDiagnostics
+        let mut diagnostics = Vec::new();
+        let mut sources: Vec<String> = Vec::new();
+        
+        // If specific file is requested, try to get LSP diagnostics
+        if let Some(file) = &params.file {
+            if let Some(mut lsp_guard) = analyzer.get_lsp_client().await {
+                if let Some(client) = lsp_guard.as_mut() {
+                let full_path = if file.starts_with(&analyzer.project_root().to_string_lossy().to_string()) {
+                    file.clone()
+                } else {
+                    analyzer.project_root().join(file).to_string_lossy().to_string()
+                };
+                
+                // Ensure document is open to get fresh diagnostics
+                let _ = client.did_open(&full_path).await;
+                
+                    // Note: LSP diagnostics are usually pushed via notifications
+                    // For now, we'll use cargo check as fallback
+                    sources.push("lsp_integration_pending".to_string());
+                }
+            }
+        }
+        
+        // Always try cargo check for comprehensive diagnostics
+        use tokio::process::Command;
+        
+        let cargo_output = Command::new("cargo")
+            .args(&["check", "--message-format=json"])
+            .current_dir(analyzer.project_root())
+            .output()
+            .await;
+            
+        match cargo_output {
+            Ok(result) => {
+                let stdout = String::from_utf8_lossy(&result.stdout);
+                sources.push("cargo_check".to_string());
+                
+                // Parse cargo output for diagnostics
+                for line in stdout.lines() {
+                    if let Ok(json_msg) = serde_json::from_str::<Value>(line) {
+                        if json_msg.get("reason") == Some(&json!("compiler-message")) {
+                            if let Some(message) = json_msg.get("message") {
+                                if let Some(spans) = message.get("spans").and_then(|s| s.as_array()) {
+                                    for span in spans {
+                                        if let Some(file_name) = span.get("file_name").and_then(|f| f.as_str()) {
+                                            // Filter by file if specified
+                                            if params.file.is_none() || 
+                                               params.file.as_ref().map_or(false, |f| file_name.contains(f) || f.contains(file_name)) {
+                                                diagnostics.push(json!({
+                                                    "file": file_name,
+                                                    "line": span.get("line_start"),
+                                                    "column": span.get("column_start"),
+                                                    "level": message.get("level").unwrap_or(&json!("error")),
+                                                    "message": message.get("message").unwrap_or(&json!("")),
+                                                    "code": message.get("code"),
+                                                    "source": "cargo"
+                                                }));
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            Err(e) => {
+                sources.push(format!("cargo_check_failed: {}", e));
+            }
+        }
+        
         Ok(json!({ 
             "file": params.file,
-            "diagnostics": [],
-            "status": "diagnostics_pending",
-            "message": "Diagnostics integration requires LSP notification handling"
+            "diagnostics": diagnostics,
+            "total_diagnostics": diagnostics.len(),
+            "sources": sources,
+            "status": "cargo_check_complete",
+            "note": "LSP real-time diagnostics require notification handling"
         }))
     }
     

@@ -54,27 +54,86 @@ impl LspClient {
                 "version": "0.1.0"
             },
             "rootUri": format!("file://{}", self.config.root_path.display()),
+            "workspaceFolders": [{
+                "uri": format!("file://{}", self.config.root_path.display()),
+                "name": self.config.root_path.file_name()
+                    .map(|n| n.to_string_lossy().to_string())
+                    .unwrap_or_else(|| "project".to_string())
+            }],
             "capabilities": {
+                "workspace": {
+                    "workspaceFolders": true,
+                    "configuration": true,
+                    "didChangeWatchedFiles": {
+                        "dynamicRegistration": true
+                    }
+                },
                 "textDocument": {
+                    "synchronization": {
+                        "dynamicRegistration": true,
+                        "willSave": false,
+                        "willSaveWaitUntil": false,
+                        "didSave": true
+                    },
                     "hover": {
-                        "contentFormat": ["markdown", "plaintext"]
+                        "contentFormat": ["markdown", "plaintext"],
+                        "dynamicRegistration": true
                     },
                     "completion": {
+                        "dynamicRegistration": true,
                         "completionItem": {
-                            "snippetSupport": true
-                        }
+                            "snippetSupport": true,
+                            "commitCharactersSupport": true,
+                            "documentationFormat": ["markdown", "plaintext"],
+                            "deprecatedSupport": true,
+                            "preselectSupport": true
+                        },
+                        "contextSupport": true
                     },
-                    "references": {},
+                    "references": {
+                        "dynamicRegistration": true
+                    },
                     "rename": {
+                        "dynamicRegistration": true,
                         "prepareSupport": true
                     },
                     "signatureHelp": {
+                        "dynamicRegistration": true,
                         "signatureInformation": {
-                            "documentationFormat": ["markdown", "plaintext"]
+                            "documentationFormat": ["markdown", "plaintext"],
+                            "parameterInformation": {
+                                "labelOffsetSupport": true
+                            }
+                        },
+                        "contextSupport": true
+                    },
+                    "implementation": {
+                        "dynamicRegistration": true,
+                        "linkSupport": true
+                    },
+                    "codeAction": {
+                        "dynamicRegistration": true,
+                        "codeActionLiteralSupport": {
+                            "codeActionKind": {
+                                "valueSet": [
+                                    "quickfix",
+                                    "refactor",
+                                    "refactor.extract",
+                                    "refactor.inline",
+                                    "refactor.rewrite",
+                                    "source",
+                                    "source.organizeImports"
+                                ]
+                            }
                         }
                     },
-                    "implementation": {},
-                    "codeAction": {}
+                    "publishDiagnostics": {
+                        "relatedInformation": true,
+                        "versionSupport": false,
+                        "tagSupport": {
+                            "valueSet": [1, 2]
+                        }
+                    }
                 }
             }
         });
@@ -149,6 +208,44 @@ impl LspClient {
     
     pub async fn code_action(&mut self, params: Value) -> Result<Value> {
         self.send_request("textDocument/codeAction", params).await
+    }
+    
+    pub async fn did_open(&mut self, file_path: &str) -> Result<()> {
+        let uri = format!("file://{}", file_path);
+        let content = match tokio::fs::read_to_string(file_path).await {
+            Ok(content) => content,
+            Err(_) => String::new(), // If file doesn't exist, use empty content
+        };
+        
+        let params = serde_json::json!({
+            "textDocument": {
+                "uri": uri,
+                "languageId": "rust",
+                "version": 1,
+                "text": content
+            }
+        });
+        
+        self.send_notification("textDocument/didOpen", params).await
+    }
+    
+    pub async fn did_close(&mut self, file_path: &str) -> Result<()> {
+        let uri = format!("file://{}", file_path);
+        let params = serde_json::json!({
+            "textDocument": {
+                "uri": uri
+            }
+        });
+        
+        self.send_notification("textDocument/didClose", params).await
+    }
+    
+    pub async fn workspace_symbol(&mut self, query: &str) -> Result<Value> {
+        let params = serde_json::json!({
+            "query": query
+        });
+        
+        self.send_request("workspace/symbol", params).await
     }
     
     async fn start_server(&mut self) -> Result<()> {
@@ -271,8 +368,14 @@ impl LspClient {
         // Send request
         self.write_message(&request).await?;
         
-        // Wait for response with timeout
-        match tokio::time::timeout(std::time::Duration::from_secs(30), rx).await {
+        // Wait for response with timeout (5 seconds for most requests, 60 for initialize)
+        let timeout_duration = if method == "initialize" {
+            std::time::Duration::from_secs(60)
+        } else {
+            std::time::Duration::from_secs(30)
+        };
+        
+        match tokio::time::timeout(timeout_duration, rx).await {
             Ok(Ok(response)) => response,
             Ok(Err(_)) => bail!("Response channel closed"),
             Err(_) => {

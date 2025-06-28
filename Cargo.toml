@@ -1,6 +1,6 @@
 [package]
 name = "mcp-rust-analyzer"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2021"
 
 [dependencies]
@@ -14,6 +14,14 @@ tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 clap = { version = "4", features = ["derive"] }
 async-trait = "0.1"
+axum = "0.7"
+tower = "0.4"
+tower-http = { version = "0.5", features = ["cors"] }
+hyper = "1.0"
+reqwest = { version = "0.11", features = ["json", "blocking"] }
+dirs = "5.0"
+chrono = { version = "0.4", features = ["serde"] }
+atty = "0.2"
 
 # Temporarily comment out rust-analyzer dependencies for testing
 # rust-analyzer = "0.0.2024"

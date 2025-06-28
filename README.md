@@ -1,74 +1,132 @@
 # MCP Rust Analyzer
 
-A Model Context Protocol (MCP) server that provides Rust language intelligence through integration with rust-analyzer. This server enables AI assistants like Claude to understand and work with Rust codebases with full IntelliSense capabilities.
+🦀 An intelligent Model Context Protocol (MCP) server that provides comprehensive Rust code analysis, refactoring, and navigation capabilities through rust-analyzer integration.
 
-## Features
+[![Rust](https://img.shields.io/badge/rust-1.70+-orange.svg)](https://www.rust-lang.org/)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![MCP](https://img.shields.io/badge/MCP-Compatible-blue.svg)](https://modelcontextprotocol.io/)
 
-### 🔍 Code Intelligence
-- **Auto-completion**: Get context-aware code completions
-- **Hover information**: View type information and documentation
-- **Find references**: Locate all usages of symbols
-- **Go to definition**: Navigate to symbol definitions
-- **Signature help**: View function/method signatures while typing
-- **Diagnostics**: Real-time error and warning detection
+## ✨ Features
 
-### 🛠️ Refactoring Tools
-- **Rename**: Safely rename symbols across the project
-- **Extract function**: Extract code into new functions
-- **Inline**: Inline variables and functions
-- **Organize imports**: Automatically organize use statements
+### 🔍 **Code Analysis**
+- **Hover Information**: Get detailed type information and documentation
+- **Find References**: Locate all usage of symbols across your project  
+- **Go to Implementation**: Navigate to trait implementations
+- **Symbol Analysis**: Deep dive into symbol definitions and relationships
 
-### 📊 Code Analysis
-- **Project structure**: Analyze module organization
-- **Code metrics**: Lines of code, complexity, and more
-- **Dependency analysis**: Visualize project dependencies
-- **Dead code detection**: Find unused code
-- **Performance suggestions**: Get optimization recommendations
+### ⚡ **Auto-completion & Navigation**
+- **Smart Completions**: Context-aware code completions
+- **Signature Help**: Function parameter assistance
+- **Diagnostics**: Real-time error detection and suggestions
 
-### 🎯 MCP Features
-- **Tools**: 14+ tools for code analysis and refactoring
-- **Resources**: Access project structure, diagnostics, dependencies
-- **Prompts**: Pre-configured prompts for common tasks
-- **Full MCP Protocol**: Complete implementation of the MCP specification
+### 🔧 **Refactoring Tools**
+- **Rename Symbol**: Safe rename across entire codebase
+- **Extract Function**: Extract code into reusable functions
+- **Organize Imports**: Clean up and optimize import statements
 
-## Installation
+### 📊 **Project Metrics**
+- **Code Statistics**: Lines of code, complexity metrics
+- **Dependency Analysis**: Analyze Cargo.toml dependencies
+- **Dead Code Detection**: Find unused code in your project
+- **Project Structure**: Analyze module organization
+
+### 🎯 **Smart Templates**
+- **Code Snippets**: Pre-built templates for common patterns
+- **Match Expressions**: Generate match arms automatically
+- **Test Functions**: Quick test function templates
+
+### 🚀 **Intelligent Operation Modes**
+- **Claude Code CLI**: Automatic direct mode for maximum compatibility
+- **Manual Terminal**: Smart daemon/client system for optimal performance
+- **TTY Detection**: Automatically chooses the best mode based on context
+
+## 🚀 Installation
 
 ### Prerequisites
-- Rust toolchain (rustc, cargo)
-- rust-analyzer installed (`rustup component add rust-analyzer`)
+- Rust toolchain (1.70+)
+- `rust-analyzer` component: `rustup component add rust-analyzer`
 
-### Build from source
+### Install from Source
 ```bash
 git clone https://github.com/pedrozoalencar/mcp-rust-analyzer.git
 cd mcp-rust-analyzer
 cargo build --release
+
+# Add to PATH (permanent)
+echo 'export PATH="/path/to/mcp-rust-analyzer/target/release:$PATH"' >> ~/.bashrc
+source ~/.bashrc
 ```
 
-### Configure with Claude Code CLI
+## 📋 Usage
 
-1. Add the MCP server:
+### With Claude Code CLI
+
+1. **Add MCP Server**:
 ```bash
-claude mcp add rust-analyzer /path/to/mcp-rust-analyzer/target/release/mcp-rust-analyzer
+claude mcp add rust-analyzer mcp-rust-analyzer
 ```
 
-2. Start Claude:
+2. **Verify Installation**:
 ```bash
-claude
+claude mcp list
+claude mcp test rust-analyzer
 ```
 
-## Usage
+3. **Use in Any Rust Project**:
+```bash
+cd your-rust-project/
+claude  # Automatically detects and analyzes Rust code!
+```
 
-Once configured, the MCP server provides various tools that Claude can use:
+### Manual Usage (Advanced)
 
-### Example Commands
-- "Analyze the project structure"
-- "Show me code metrics for the src module"
-- "Find all references to the `Parser` struct"
-- "Get hover information for line 45 in main.rs"
-- "Suggest completions at line 30, column 15"
-- "Find unused code in the project"
+#### **Daemon Mode** (Recommended for Manual Use)
+```bash
+# Start daemon for current project
+mcp-rust-analyzer --daemon
 
-### Available Tools
+# Check daemon status
+mcp-rust-analyzer --status
+
+# Stop daemon
+mcp-rust-analyzer --stop
+
+# Use client (auto-connects to daemon)
+echo '{"jsonrpc":"2.0","id":1,"method":"tools/list"}' | mcp-rust-analyzer
+```
+
+#### **Direct Mode**
+```bash
+# Direct stdin/stdout mode
+echo '{"jsonrpc":"2.0","id":1,"method":"tools/list"}' | mcp-rust-analyzer --server
+```
+
+## 🛠️ Architecture
+
+### **Intelligent Mode Detection**
+- **Claude Code CLI**: Automatically uses direct mode for maximum compatibility
+- **Manual Terminal**: Uses smart daemon/client system for optimal performance
+- **TTY Detection**: Automatically chooses the best mode based on context
+
+### **Dual Operation Modes**
+
+#### **Daemon/Client System** (Manual Use)
+- **Background Daemon**: Persistent HTTP server per project
+- **Auto-Port Selection**: Finds available ports automatically  
+- **State Management**: Tracks daemons across multiple projects
+- **Auto-Start**: Client automatically starts daemon if needed
+
+#### **Direct Mode** (Claude Code CLI)
+- **Zero Configuration**: Works out-of-the-box
+- **LSP Integration**: Full rust-analyzer capabilities
+- **Fast Startup**: Optimized for MCP protocol
+
+### **LSP Integration**
+- **Background Initialization**: Non-blocking rust-analyzer startup
+- **Smart Caching**: Reuses LSP connections for performance
+- **Error Handling**: Graceful fallbacks when LSP unavailable
+
+## 📚 Available Tools
 
 | Tool | Description |
 |------|-------------|
